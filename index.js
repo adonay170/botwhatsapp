@@ -3562,20 +3562,242 @@ async function enviarMensajeProgramado(programacion) {
     } catch (error) {}
 }
 
+// Variable global para almacenar el QR
+let currentQR = null;
+
 client.on('qr', qr => {
-    console.clear();
-    console.log('╔══════════════════════════════════════════════════════════╗');
-    console.log('║                    ESCANEA EL QR                         ║');
-    console.log('╠══════════════════════════════════════════════════════════╣');
-    console.log('║ 📱 Instrucciones:                                        ║');
-    console.log('║    1. Abre WhatsApp en tu teléfono                       ║');
-    console.log('║    2. Menú → WhatsApp Web                                ║');
-    console.log('║    3. Escanea el código QR                               ║');
-    console.log('╚══════════════════════════════════════════════════════════╝\n');
-    
-    qrcode.generate(qr, { small: true });
-    
-    console.log(`\n🔗 Enlace QR: https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(qr)}`);
+    currentQR = qr;
+    console.log('🔄 Nuevo QR generado - Disponible en la página web');
+});
+
+// Modifica la ruta principal para mostrar el QR
+app.get('/', (req, res) => {
+    if (currentQR) {
+        const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(currentQR)}`;
+        res.send(`
+            <html>
+                <head>
+                    <title>Jarabito Bot</title>
+                    <meta name="viewport" content="width=device-width, initial-scale=1">
+                    <style>
+                        body {
+                            font-family: Arial, sans-serif;
+                            text-align: center;
+                            padding: 20px;
+                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                            color: white;
+                            min-height: 100vh;
+                            margin: 0;
+                            display: flex;
+                            justify-content: center;
+                            align-items: center;
+                        }
+                        .container {
+                            background: rgba(255, 255, 255, 0.95);
+                            padding: 30px;
+                            border-radius: 20px;
+                            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                            max-width: 500px;
+                            width: 100%;
+                        }
+                        h1 {
+                            color: #333;
+                            margin-bottom: 10px;
+                        }
+                        .qr-container {
+                            background: white;
+                            padding: 20px;
+                            border-radius: 15px;
+                            margin: 20px 0;
+                        }
+                        img {
+                            max-width: 100%;
+                            height: auto;
+                            border-radius: 10px;
+                        }
+                        .instructions {
+                            color: #666;
+                            text-align: left;
+                            padding: 15px;
+                            background: #f5f5f5;
+                            border-radius: 10px;
+                            margin: 20px 0;
+                        }
+                        .instructions ol {
+                            margin: 10px 0;
+                            padding-left: 20px;
+                        }
+                        .instructions li {
+                            margin: 10px 0;
+                            color: #555;
+                        }
+                        .status {
+                            display: inline-block;
+                            padding: 8px 16px;
+                            border-radius: 20px;
+                            font-weight: bold;
+                            margin: 10px 0;
+                        }
+                        .waiting {
+                            background: #ffd700;
+                            color: #333;
+                        }
+                        .footer {
+                            color: #999;
+                            font-size: 12px;
+                            margin-top: 20px;
+                        }
+                        .refresh-note {
+                            color: #888;
+                            font-size: 14px;
+                            margin-top: 15px;
+                            padding: 10px;
+                            background: #e8f5e8;
+                            border-radius: 10px;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <h1>🤖 Jarabito Bot</h1>
+                        <p style="color: #666;">Tu asistente de seguridad e información</p>
+                        
+                        <div class="qr-container">
+                            <img src="${qrImageUrl}" alt="QR Code para WhatsApp">
+                        </div>
+                        
+                        <div class="status waiting">⏳ Esperando escaneo</div>
+                        
+                        <div class="instructions">
+                            <strong>📱 Instrucciones para conectar:</strong>
+                            <ol>
+                                <li>Abre WhatsApp en tu teléfono</li>
+                                <li>Toca el menú ⋮ (Android) o ⚙️ (iPhone)</li>
+                                <li>Selecciona "Dispositivos vinculados"</li>
+                                <li>Toca "Vincular un dispositivo"</li>
+                                <li>Escanea este código QR</li>
+                            </ol>
+                        </div>
+                        
+                        <div class="refresh-note">
+                            ⏰ El QR se actualiza cada 20 segundos<br>
+                            <small>Si no puedes escanear, espera y recarga la página</small>
+                        </div>
+                        
+                        <div class="footer">
+                            ⚡ Bot activo en Render | ${new Date().toLocaleString()}
+                        </div>
+                    </div>
+                    <script>
+                        // Recargar la página cada 30 segundos para mostrar QR actualizado
+                        setTimeout(() => {
+                            location.reload();
+                        }, 30000);
+                    </script>
+                </body>
+            </html>
+        `);
+    } else if (client.info && client.info.pushname) {
+        res.send(`
+            <html>
+                <head>
+                    <title>Jarabito Bot</title>
+                    <meta name="viewport" content="width=device-width, initial-scale=1">
+                    <style>
+                        body {
+                            font-family: Arial, sans-serif;
+                            text-align: center;
+                            padding: 20px;
+                            background: linear-gradient(135deg, #00b09b, #96c93d);
+                            color: white;
+                            min-height: 100vh;
+                            margin: 0;
+                            display: flex;
+                            justify-content: center;
+                            align-items: center;
+                        }
+                        .container {
+                            background: white;
+                            padding: 40px;
+                            border-radius: 20px;
+                            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                            max-width: 500px;
+                        }
+                        h1 {
+                            color: #333;
+                        }
+                        .success-icon {
+                            font-size: 80px;
+                            margin: 20px 0;
+                            color: #00b09b;
+                        }
+                        .info {
+                            background: #f0f9f0;
+                            padding: 20px;
+                            border-radius: 10px;
+                            margin: 20px 0;
+                            color: #333;
+                            text-align: left;
+                        }
+                        .button {
+                            background: #00b09b;
+                            color: white;
+                            border: none;
+                            padding: 12px 30px;
+                            border-radius: 25px;
+                            font-size: 16px;
+                            cursor: pointer;
+                            text-decoration: none;
+                            display: inline-block;
+                            margin: 10px 0;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="success-icon">✅</div>
+                        <h1>¡Bot Conectado!</h1>
+                        <p style="color: #666;">Jarabito está funcionando correctamente</p>
+                        
+                        <div class="info">
+                            <strong>📊 Estado:</strong>
+                            <p>🤖 Nombre: ${client.info.pushname}</p>
+                            <p>📞 Número: ${client.info.wid.user}</p>
+                            <p>⚡ Plataforma: Render</p>
+                        </div>
+                        
+                        <a href="https://wa.me/${client.info.wid.user}" class="button">📱 Abrir WhatsApp</a>
+                        
+                        <p style="color: #999; margin-top: 20px; font-size: 12px;">
+                            Bot activo 24/7 | Jarabe Seguridad
+                        </p>
+                    </div>
+                </body>
+            </html>
+        `);
+    } else {
+        res.send(`
+            <html>
+                <body style="font-family: Arial; text-align: center; padding: 50px;">
+                    <h1>⏳ Iniciando Jarabito...</h1>
+                    <p>El bot está iniciando, espera unos segundos y recarga la página</p>
+                    <script>
+                        setTimeout(() => location.reload(), 5000);
+                    </script>
+                </body>
+            </html>
+        `);
+    }
+});
+
+// También puedes agregar una ruta específica para el QR
+app.get('/qr', (req, res) => {
+    if (currentQR) {
+        const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(currentQR)}`;
+        res.redirect(qrImageUrl);
+    } else {
+        res.send('QR no disponible aún');
+    }
 });
 
 client.on('authenticated', () => {
