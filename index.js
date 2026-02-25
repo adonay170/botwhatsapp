@@ -60,6 +60,7 @@ const FIREBASE_CIP_CONFIG = {
 const userStates = new Map();
 const scheduledMessages = [];
 let availableGroups = [];
+let client; // Declarar client globalmente
 
 const TANQUES_LIST = [
     'TQ 1', 'TQ 2', 'TQ 3', 'TQ 4', 'TQ 5', 'TQ 6', 'TQ 7', 'TQ 8', 'TQ 9', 'TQ 10',
@@ -101,33 +102,342 @@ async function findChrome() {
     return '/usr/bin/chromium-browser';
 }
 
-const chromePath = await findChrome();
+// Función para inicializar el cliente (ahora async)
+async function initializeClient() {
+    const chromePath = await findChrome();
+    console.log(`📍 Chrome path: ${chromePath}`);
 
-const client = new Client({
-    authStrategy: new LocalAuth({
-        clientId: "bot-seguridad",
-        dataPath: path.join(__dirname, 'whatsapp-session')
-    }),
-    puppeteer: {
-        headless: true,
-        executablePath: chromePath,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--disable-gpu',
-            '--no-first-run',
-            '--no-zygote',
-            '--single-process',
-            '--disable-extensions'
-        ]
-    },
-    webVersionCache: {
-        type: "remote",
-        remotePath: "https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html"
-    }
-});
+    const newClient = new Client({
+        authStrategy: new LocalAuth({
+            clientId: "bot-seguridad",
+            dataPath: path.join(__dirname, 'whatsapp-session')
+        }),
+        puppeteer: {
+            headless: true,
+            executablePath: chromePath,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--disable-gpu',
+                '--no-first-run',
+                '--no-zygote',
+                '--single-process',
+                '--disable-extensions'
+            ]
+        },
+        webVersionCache: {
+            type: "remote",
+            remotePath: "https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html"
+        }
+    });
+
+    // Configurar eventos
+    setupClientEvents(newClient);
+    return newClient;
+}
+
+// Configuración de eventos del cliente
+function setupClientEvents(clientInstance) {
+    let currentQR = null;
+
+    clientInstance.on('qr', qr => {
+        currentQR = qr;
+        console.log('🔄 Nuevo QR generado - Disponible en la página web');
+    });
+
+    clientInstance.on('authenticated', () => {
+        console.log('✅ Autenticación exitosa!');
+    });
+
+    clientInstance.on('auth_failure', msg => {
+        console.error('❌ Error de autenticación:', msg);
+    });
+
+    clientInstance.on('ready', async () => {
+        console.clear();
+        console.log('╔══════════════════════════════════════════════════════════╗');
+        console.log('║                 ✅ BOT CONECTADO EXITOSAMENTE            ║');
+        console.log('╠══════════════════════════════════════════════════════════╣');
+        console.log(`║ 🤖 Nombre: ${clientInstance.info.pushname || 'Jarabito'}                       ║`);
+        console.log(`║ 📞 Número: ${clientInstance.info.wid.user}                            ║`);
+        console.log('╚══════════════════════════════════════════════════════════╝\n');
+    });
+
+    clientInstance.on('disconnected', reason => {
+        console.log('❌ Desconectado:', reason);
+        console.log('🔄 Reconectando en 5 segundos...');
+        setTimeout(() => clientInstance.initialize(), 5000);
+    });
+
+    clientInstance.on('group_join', async (notification) => {
+        try {
+            const chat = await clientInstance.getChatById(notification.chatId);
+            if (chat.isGroup) {
+                await enviarBienvenidaGrupo(chat);
+            }
+        } catch (error) {}
+    });
+
+    clientInstance.on('message', async message => {
+        try {
+            const texto = message.body.trim();
+            const userId = message.from;
+            
+            if (userStates.has(userId)) {
+                await manejarEstadoUsuario(message, userId);
+                return;
+            }
+            
+            if (texto.toLowerCase() === '/menu' || texto.toLowerCase() === '/menú') {
+                await enviarMenu(message);
+                return;
+            }
+            
+            if (/^[1-9]$|^10$/.test(texto)) {
+                await manejarOpcionMenu(message, parseInt(texto));
+                return;
+            }
+            
+            if (message.from.endsWith('@g.us')) {
+                if (!texto.startsWith('/') && !/^[1-9]$|^10$/.test(texto)) {
+                    return;
+                }
+            }
+            
+        } catch (error) {}
+    });
+
+    // Actualizar la ruta principal para usar currentQR
+    app.get('/', (req, res) => {
+        if (currentQR) {
+            const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(currentQR)}`;
+            res.send(`
+                <html>
+                    <head>
+                        <title>Jarabito Bot</title>
+                        <meta name="viewport" content="width=device-width, initial-scale=1">
+                        <style>
+                            body {
+                                font-family: Arial, sans-serif;
+                                text-align: center;
+                                padding: 20px;
+                                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                                color: white;
+                                min-height: 100vh;
+                                margin: 0;
+                                display: flex;
+                                justify-content: center;
+                                align-items: center;
+                            }
+                            .container {
+                                background: rgba(255, 255, 255, 0.95);
+                                padding: 30px;
+                                border-radius: 20px;
+                                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                                max-width: 500px;
+                                width: 100%;
+                            }
+                            h1 {
+                                color: #333;
+                                margin-bottom: 10px;
+                            }
+                            .qr-container {
+                                background: white;
+                                padding: 20px;
+                                border-radius: 15px;
+                                margin: 20px 0;
+                            }
+                            img {
+                                max-width: 100%;
+                                height: auto;
+                                border-radius: 10px;
+                            }
+                            .instructions {
+                                color: #666;
+                                text-align: left;
+                                padding: 15px;
+                                background: #f5f5f5;
+                                border-radius: 10px;
+                                margin: 20px 0;
+                            }
+                            .instructions ol {
+                                margin: 10px 0;
+                                padding-left: 20px;
+                            }
+                            .instructions li {
+                                margin: 10px 0;
+                                color: #555;
+                            }
+                            .status {
+                                display: inline-block;
+                                padding: 8px 16px;
+                                border-radius: 20px;
+                                font-weight: bold;
+                                margin: 10px 0;
+                            }
+                            .waiting {
+                                background: #ffd700;
+                                color: #333;
+                            }
+                            .footer {
+                                color: #999;
+                                font-size: 12px;
+                                margin-top: 20px;
+                            }
+                            .refresh-note {
+                                color: #888;
+                                font-size: 14px;
+                                margin-top: 15px;
+                                padding: 10px;
+                                background: #e8f5e8;
+                                border-radius: 10px;
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="container">
+                            <h1>🤖 Jarabito Bot</h1>
+                            <p style="color: #666;">Tu asistente de seguridad e información</p>
+                            
+                            <div class="qr-container">
+                                <img src="${qrImageUrl}" alt="QR Code para WhatsApp">
+                            </div>
+                            
+                            <div class="status waiting">⏳ Esperando escaneo</div>
+                            
+                            <div class="instructions">
+                                <strong>📱 Instrucciones para conectar:</strong>
+                                <ol>
+                                    <li>Abre WhatsApp en tu teléfono</li>
+                                    <li>Toca el menú ⋮ (Android) o ⚙️ (iPhone)</li>
+                                    <li>Selecciona "Dispositivos vinculados"</li>
+                                    <li>Toca "Vincular un dispositivo"</li>
+                                    <li>Escanea este código QR</li>
+                                </ol>
+                            </div>
+                            
+                            <div class="refresh-note">
+                                ⏰ El QR se actualiza cada 20 segundos<br>
+                                <small>Si no puedes escanear, espera y recarga la página</small>
+                            </div>
+                            
+                            <div class="footer">
+                                ⚡ Bot activo en Render | ${new Date().toLocaleString()}
+                            </div>
+                        </div>
+                        <script>
+                            // Recargar la página cada 30 segundos para mostrar QR actualizado
+                            setTimeout(() => {
+                                location.reload();
+                            }, 30000);
+                        </script>
+                    </body>
+                </html>
+            `);
+        } else if (clientInstance.info && clientInstance.info.pushname) {
+            res.send(`
+                <html>
+                    <head>
+                        <title>Jarabito Bot</title>
+                        <meta name="viewport" content="width=device-width, initial-scale=1">
+                        <style>
+                            body {
+                                font-family: Arial, sans-serif;
+                                text-align: center;
+                                padding: 20px;
+                                background: linear-gradient(135deg, #00b09b, #96c93d);
+                                color: white;
+                                min-height: 100vh;
+                                margin: 0;
+                                display: flex;
+                                justify-content: center;
+                                align-items: center;
+                            }
+                            .container {
+                                background: white;
+                                padding: 40px;
+                                border-radius: 20px;
+                                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                                max-width: 500px;
+                            }
+                            h1 {
+                                color: #333;
+                            }
+                            .success-icon {
+                                font-size: 80px;
+                                margin: 20px 0;
+                                color: #00b09b;
+                            }
+                            .info {
+                                background: #f0f9f0;
+                                padding: 20px;
+                                border-radius: 10px;
+                                margin: 20px 0;
+                                color: #333;
+                                text-align: left;
+                            }
+                            .button {
+                                background: #00b09b;
+                                color: white;
+                                border: none;
+                                padding: 12px 30px;
+                                border-radius: 25px;
+                                font-size: 16px;
+                                cursor: pointer;
+                                text-decoration: none;
+                                display: inline-block;
+                                margin: 10px 0;
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="container">
+                            <div class="success-icon">✅</div>
+                            <h1>¡Bot Conectado!</h1>
+                            <p style="color: #666;">Jarabito está funcionando correctamente</p>
+                            
+                            <div class="info">
+                                <strong>📊 Estado:</strong>
+                                <p>🤖 Nombre: ${clientInstance.info.pushname}</p>
+                                <p>📞 Número: ${clientInstance.info.wid.user}</p>
+                                <p>⚡ Plataforma: Render</p>
+                            </div>
+                            
+                            <a href="https://wa.me/${clientInstance.info.wid.user}" class="button">📱 Abrir WhatsApp</a>
+                            
+                            <p style="color: #999; margin-top: 20px; font-size: 12px;">
+                                Bot activo 24/7 | Jarabe Seguridad
+                            </p>
+                        </div>
+                    </body>
+                </html>
+            `);
+        } else {
+            res.send(`
+                <html>
+                    <body style="font-family: Arial; text-align: center; padding: 50px;">
+                        <h1>⏳ Iniciando Jarabito...</h1>
+                        <p>El bot está iniciando, espera unos segundos y recarga la página</p>
+                        <script>
+                            setTimeout(() => location.reload(), 5000);
+                        </script>
+                    </body>
+                </html>
+            `);
+        }
+    });
+
+    app.get('/qr', (req, res) => {
+        if (currentQR) {
+            const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(currentQR)}`;
+            res.redirect(qrImageUrl);
+        } else {
+            res.send('QR no disponible aún');
+        }
+    });
+}
 
 function crearCarpetas() {
     const carpetas = [
@@ -3562,327 +3872,13 @@ async function enviarMensajeProgramado(programacion) {
     } catch (error) {}
 }
 
-// Variable global para almacenar el QR
-let currentQR = null;
-
-client.on('qr', qr => {
-    currentQR = qr;
-    console.log('🔄 Nuevo QR generado - Disponible en la página web');
-});
-
-// Modifica la ruta principal para mostrar el QR
-app.get('/', (req, res) => {
-    if (currentQR) {
-        const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(currentQR)}`;
-        res.send(`
-            <html>
-                <head>
-                    <title>Jarabito Bot</title>
-                    <meta name="viewport" content="width=device-width, initial-scale=1">
-                    <style>
-                        body {
-                            font-family: Arial, sans-serif;
-                            text-align: center;
-                            padding: 20px;
-                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                            color: white;
-                            min-height: 100vh;
-                            margin: 0;
-                            display: flex;
-                            justify-content: center;
-                            align-items: center;
-                        }
-                        .container {
-                            background: rgba(255, 255, 255, 0.95);
-                            padding: 30px;
-                            border-radius: 20px;
-                            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-                            max-width: 500px;
-                            width: 100%;
-                        }
-                        h1 {
-                            color: #333;
-                            margin-bottom: 10px;
-                        }
-                        .qr-container {
-                            background: white;
-                            padding: 20px;
-                            border-radius: 15px;
-                            margin: 20px 0;
-                        }
-                        img {
-                            max-width: 100%;
-                            height: auto;
-                            border-radius: 10px;
-                        }
-                        .instructions {
-                            color: #666;
-                            text-align: left;
-                            padding: 15px;
-                            background: #f5f5f5;
-                            border-radius: 10px;
-                            margin: 20px 0;
-                        }
-                        .instructions ol {
-                            margin: 10px 0;
-                            padding-left: 20px;
-                        }
-                        .instructions li {
-                            margin: 10px 0;
-                            color: #555;
-                        }
-                        .status {
-                            display: inline-block;
-                            padding: 8px 16px;
-                            border-radius: 20px;
-                            font-weight: bold;
-                            margin: 10px 0;
-                        }
-                        .waiting {
-                            background: #ffd700;
-                            color: #333;
-                        }
-                        .footer {
-                            color: #999;
-                            font-size: 12px;
-                            margin-top: 20px;
-                        }
-                        .refresh-note {
-                            color: #888;
-                            font-size: 14px;
-                            margin-top: 15px;
-                            padding: 10px;
-                            background: #e8f5e8;
-                            border-radius: 10px;
-                        }
-                    </style>
-                </head>
-                <body>
-                    <div class="container">
-                        <h1>🤖 Jarabito Bot</h1>
-                        <p style="color: #666;">Tu asistente de seguridad e información</p>
-                        
-                        <div class="qr-container">
-                            <img src="${qrImageUrl}" alt="QR Code para WhatsApp">
-                        </div>
-                        
-                        <div class="status waiting">⏳ Esperando escaneo</div>
-                        
-                        <div class="instructions">
-                            <strong>📱 Instrucciones para conectar:</strong>
-                            <ol>
-                                <li>Abre WhatsApp en tu teléfono</li>
-                                <li>Toca el menú ⋮ (Android) o ⚙️ (iPhone)</li>
-                                <li>Selecciona "Dispositivos vinculados"</li>
-                                <li>Toca "Vincular un dispositivo"</li>
-                                <li>Escanea este código QR</li>
-                            </ol>
-                        </div>
-                        
-                        <div class="refresh-note">
-                            ⏰ El QR se actualiza cada 20 segundos<br>
-                            <small>Si no puedes escanear, espera y recarga la página</small>
-                        </div>
-                        
-                        <div class="footer">
-                            ⚡ Bot activo en Render | ${new Date().toLocaleString()}
-                        </div>
-                    </div>
-                    <script>
-                        // Recargar la página cada 30 segundos para mostrar QR actualizado
-                        setTimeout(() => {
-                            location.reload();
-                        }, 30000);
-                    </script>
-                </body>
-            </html>
-        `);
-    } else if (client.info && client.info.pushname) {
-        res.send(`
-            <html>
-                <head>
-                    <title>Jarabito Bot</title>
-                    <meta name="viewport" content="width=device-width, initial-scale=1">
-                    <style>
-                        body {
-                            font-family: Arial, sans-serif;
-                            text-align: center;
-                            padding: 20px;
-                            background: linear-gradient(135deg, #00b09b, #96c93d);
-                            color: white;
-                            min-height: 100vh;
-                            margin: 0;
-                            display: flex;
-                            justify-content: center;
-                            align-items: center;
-                        }
-                        .container {
-                            background: white;
-                            padding: 40px;
-                            border-radius: 20px;
-                            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-                            max-width: 500px;
-                        }
-                        h1 {
-                            color: #333;
-                        }
-                        .success-icon {
-                            font-size: 80px;
-                            margin: 20px 0;
-                            color: #00b09b;
-                        }
-                        .info {
-                            background: #f0f9f0;
-                            padding: 20px;
-                            border-radius: 10px;
-                            margin: 20px 0;
-                            color: #333;
-                            text-align: left;
-                        }
-                        .button {
-                            background: #00b09b;
-                            color: white;
-                            border: none;
-                            padding: 12px 30px;
-                            border-radius: 25px;
-                            font-size: 16px;
-                            cursor: pointer;
-                            text-decoration: none;
-                            display: inline-block;
-                            margin: 10px 0;
-                        }
-                    </style>
-                </head>
-                <body>
-                    <div class="container">
-                        <div class="success-icon">✅</div>
-                        <h1>¡Bot Conectado!</h1>
-                        <p style="color: #666;">Jarabito está funcionando correctamente</p>
-                        
-                        <div class="info">
-                            <strong>📊 Estado:</strong>
-                            <p>🤖 Nombre: ${client.info.pushname}</p>
-                            <p>📞 Número: ${client.info.wid.user}</p>
-                            <p>⚡ Plataforma: Render</p>
-                        </div>
-                        
-                        <a href="https://wa.me/${client.info.wid.user}" class="button">📱 Abrir WhatsApp</a>
-                        
-                        <p style="color: #999; margin-top: 20px; font-size: 12px;">
-                            Bot activo 24/7 | Jarabe Seguridad
-                        </p>
-                    </div>
-                </body>
-            </html>
-        `);
-    } else {
-        res.send(`
-            <html>
-                <body style="font-family: Arial; text-align: center; padding: 50px;">
-                    <h1>⏳ Iniciando Jarabito...</h1>
-                    <p>El bot está iniciando, espera unos segundos y recarga la página</p>
-                    <script>
-                        setTimeout(() => location.reload(), 5000);
-                    </script>
-                </body>
-            </html>
-        `);
-    }
-});
-
-// También puedes agregar una ruta específica para el QR
-app.get('/qr', (req, res) => {
-    if (currentQR) {
-        const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(currentQR)}`;
-        res.redirect(qrImageUrl);
-    } else {
-        res.send('QR no disponible aún');
-    }
-});
-
-client.on('authenticated', () => {
-    console.log('✅ Autenticación exitosa!');
-});
-
-client.on('auth_failure', msg => {
-    console.error('❌ Error de autenticación:', msg);
-});
-
-client.on('ready', async () => {
-    console.clear();
-    console.log('╔══════════════════════════════════════════════════════════╗');
-    console.log('║                 ✅ BOT CONECTADO EXITOSAMENTE            ║');
-    console.log('╠══════════════════════════════════════════════════════════╣');
-    console.log(`║ 🤖 Nombre: ${client.info.pushname || 'Jarabito'}                       ║`);
-    console.log(`║ 📞 Número: ${client.info.wid.user}                            ║`);
-    console.log('╚══════════════════════════════════════════════════════════╝\n');
-});
-
-function cargarProgramacionesGuardadas() {
-    try {
-        const archivoProgramaciones = path.join(__dirname, 'programaciones.json');
-        if (fs.existsSync(archivoProgramaciones)) {
-            const contenido = fs.readFileSync(archivoProgramaciones, 'utf8');
-            const programaciones = JSON.parse(contenido);
-            
-            scheduledMessages.length = 0;
-            scheduledMessages.push(...programaciones);
-            console.log(`📂 Cargadas ${programaciones.length} programaciones`);
-        }
-    } catch (error) {}
-}
-
-client.on('group_join', async (notification) => {
-    try {
-        const chat = await client.getChatById(notification.chatId);
-        if (chat.isGroup) {
-            await enviarBienvenidaGrupo(chat);
-        }
-    } catch (error) {}
-});
-
-client.on('message', async message => {
-    try {
-        const texto = message.body.trim();
-        const userId = message.from;
-        
-        if (userStates.has(userId)) {
-            await manejarEstadoUsuario(message, userId);
-            return;
-        }
-        
-        if (texto.toLowerCase() === '/menu' || texto.toLowerCase() === '/menú') {
-            await enviarMenu(message);
-            return;
-        }
-        
-        if (/^[1-9]$|^10$/.test(texto)) {
-            await manejarOpcionMenu(message, parseInt(texto));
-            return;
-        }
-        
-        if (message.from.endsWith('@g.us')) {
-            if (!texto.startsWith('/') && !/^[1-9]$|^10$/.test(texto)) {
-                return;
-            }
-        }
-        
-    } catch (error) {}
-});
-
-client.on('disconnected', reason => {
-    console.log('❌ Desconectado:', reason);
-    console.log('🔄 Reconectando en 5 segundos...');
-    setTimeout(() => client.initialize(), 5000);
-});
-
+// Iniciar el bot
 async function iniciarBot() {
     console.log('╔══════════════════════════════════════════════════════════╗');
     console.log('║                INICIANDO BOT DE WHATSAPP                ║');
     console.log('╠══════════════════════════════════════════════════════════╣');
     console.log(`║ 🖥️  Sistema: ${process.platform}                                ║`);
     console.log(`║ 📦 Node.js: ${process.version}                             ║`);
-    console.log(`║ 📍 Chrome: ${chromePath}                             ║`);
     console.log('╚══════════════════════════════════════════════════════════╝\n');
     
     crearCarpetas();
@@ -3890,6 +3886,8 @@ async function iniciarBot() {
     setInterval(verificarMensajesProgramados, 60000);
     setInterval(limpiarArchivosTemporales, 3600000);
     
+    // Inicializar el cliente (ahora dentro de función async)
+    client = await initializeClient();
     await client.initialize();
 }
 
